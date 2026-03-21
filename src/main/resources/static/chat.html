@@ -1,0 +1,732 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>ChatApp</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet"/>
+<script src="https://cdn.jsdelivr.net/npm/sockjs-client@1/dist/sockjs.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/stompjs@2.3.3/lib/stomp.min.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --green: #25D366; --green-dark: #128C7E;
+    --bg: #111b21; --sidebar-bg: #202c33; --chat-bg: #0b141a;
+    --header-bg: #202c33; --input-bg: #2a3942;
+    --bubble-out: #005c4b; --bubble-in: #202c33;
+    --text: #e9edef; --text-muted: #8696a0; --text-secondary: #667781;
+    --border: rgba(255,255,255,0.08); --font: 'DM Sans', sans-serif;
+  }
+  body { font-family: var(--font); background: var(--bg); height: 100vh; display: flex; overflow: hidden; }
+  .app { width: 100%; height: 100vh; display: flex; overflow: hidden; }
+
+  .sidebar { width: 360px; min-width: 280px; background: var(--sidebar-bg); display: flex; flex-direction: column; border-right: 1px solid var(--border); }
+  .sidebar-header { padding: 16px 20px; display: flex; align-items: center; justify-content: space-between; background: var(--header-bg); }
+  .user-info { display: flex; align-items: center; gap: 12px; }
+  .avatar { width: 40px; height: 40px; border-radius: 50%; background: var(--green-dark); display: flex; align-items: center; justify-content: center; font-size: 16px; font-weight: 600; color: #fff; flex-shrink: 0; overflow: hidden; }
+  .avatar.sm { width: 34px; height: 34px; font-size: 13px; }
+  .avatar.lg { width: 46px; height: 46px; font-size: 18px; }
+  .avatar img { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; }
+  .username-display { font-size: 16px; font-weight: 600; color: var(--text); }
+  .sidebar-icons { display: flex; gap: 4px; }
+  .icon-btn { width: 36px; height: 36px; border-radius: 50%; border: none; background: transparent; color: var(--text-muted); cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 18px; transition: background 0.15s; }
+  .icon-btn:hover { background: rgba(255,255,255,0.08); }
+  .search-bar { padding: 8px 12px; }
+  .search-bar input { width: 100%; padding: 9px 16px 9px 40px; background: var(--input-bg); border: none; border-radius: 8px; color: var(--text); font-family: var(--font); font-size: 14px; outline: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%238696a0' stroke-width='2'%3E%3Ccircle cx='11' cy='11' r='8'/%3E%3Cpath d='m21 21-4.35-4.35'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: 12px center; }
+  .search-bar input::placeholder { color: var(--text-muted); }
+  .contacts-label { padding: 12px 20px 6px; font-size: 11px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.8px; }
+  .contacts-list { flex: 1; overflow-y: auto; }
+  .contacts-list::-webkit-scrollbar { width: 4px; }
+  .contacts-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 4px; }
+  .contact-item { padding: 12px 20px; display: flex; align-items: center; gap: 12px; cursor: pointer; transition: background 0.15s; border-bottom: 1px solid rgba(255,255,255,0.03); }
+  .contact-item:hover { background: rgba(255,255,255,0.05); }
+  .contact-item.active { background: var(--input-bg); }
+  .contact-meta { flex: 1; min-width: 0; }
+  .contact-name { font-size: 15px; font-weight: 500; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .contact-preview { font-size: 13px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
+  .online-dot { width: 10px; height: 10px; border-radius: 50%; background: #8696a0; flex-shrink: 0; }
+  .logout-btn { margin: 12px; padding: 10px; background: rgba(255,80,80,0.08); color: #ff6b6b; border: 1px solid rgba(255,80,80,0.15); border-radius: 10px; font-family: var(--font); font-size: 13px; font-weight: 500; cursor: pointer; transition: all 0.15s; }
+  .logout-btn:hover { background: rgba(255,80,80,0.15); }
+
+  .chat-area { flex: 1; display: flex; flex-direction: column; background: var(--chat-bg); position: relative; }
+  .chat-area::before { content: ''; position: absolute; inset: 0; opacity: 0.03; background-image: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='%23fff' fill-opacity='1'%3E%3Cpath d='M30 30c0-11 9-20 20-20s20 9 20 20-9 20-20 20-20-9-20-20zm-30 0c0-11 9-20 20-20S40 19 40 30s-9 20-20 20S0 41 0 30z'/%3E%3C/g%3E%3C/svg%3E"); pointer-events: none; }
+  .chat-header { padding: 12px 20px; background: var(--header-bg); display: flex; align-items: center; gap: 14px; border-bottom: 1px solid var(--border); z-index: 2; position: relative; }
+  .chat-header-info { flex: 1; }
+  .chat-header-name { font-size: 16px; font-weight: 600; color: var(--text); }
+  .chat-header-status { font-size: 12px; color: var(--green); margin-top: 1px; }
+  .messages { flex: 1; overflow-y: auto; padding: 16px 20px; display: flex; flex-direction: column; gap: 4px; position: relative; z-index: 1; }
+  .messages::-webkit-scrollbar { width: 4px; }
+  .messages::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 4px; }
+  .date-divider { text-align: center; margin: 12px 0; }
+  .date-divider span { background: rgba(17,27,33,0.85); color: var(--text-muted); font-size: 12px; padding: 4px 12px; border-radius: 8px; }
+  .bubble-wrap { display: flex; align-items: flex-end; gap: 6px; animation: bubbleIn 0.2s ease both; }
+  @keyframes bubbleIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+  .bubble-wrap.out { flex-direction: row-reverse; }
+  .bubble { max-width: 65%; padding: 8px 12px 6px; border-radius: 8px; position: relative; word-break: break-word; }
+  .bubble-wrap.in .bubble { background: var(--bubble-in); border-top-left-radius: 2px; }
+  .bubble-wrap.out .bubble { background: var(--bubble-out); border-top-right-radius: 2px; }
+  .bubble-sender { font-size: 12px; font-weight: 600; color: var(--green); margin-bottom: 3px; display: none; }
+  .bubble-wrap.in .bubble-sender { display: block; }
+  .bubble-text { font-size: 14.5px; color: var(--text); line-height: 1.45; }
+  .bubble-time { font-size: 11px; color: var(--text-secondary); text-align: right; margin-top: 3px; }
+  .bubble-wrap.out .bubble-time { color: rgba(134,213,161,0.7); }
+  .bubble-wrap.deleted .bubble-text { color: var(--text-muted); font-style: italic; }
+  .bubble-wrap.highlight .bubble { outline: 2px solid var(--green); outline-offset: 2px; }
+
+  .input-bar { padding: 12px 20px; background: var(--header-bg); display: flex; align-items: center; gap: 10px; border-top: 1px solid var(--border); z-index: 2; position: relative; }
+  .input-wrap { flex: 1; background: var(--input-bg); border-radius: 24px; display: flex; align-items: center; padding: 0 16px; }
+  .input-wrap input { flex: 1; padding: 12px 0; background: transparent; border: none; outline: none; color: var(--text); font-family: var(--font); font-size: 15px; }
+  .input-wrap input::placeholder { color: var(--text-muted); }
+  .emoji-btn { background: transparent; border: none; font-size: 20px; cursor: pointer; opacity: 0.6; transition: opacity 0.15s; padding: 0 8px 0 0; }
+  .emoji-btn:hover { opacity: 1; }
+  .attach-btn { background: transparent; border: none; font-size: 22px; cursor: pointer; opacity: 0.7; transition: opacity 0.15s; flex-shrink: 0; padding: 6px; border-radius: 50%; }
+  .attach-btn:hover { opacity: 1; background: rgba(255,255,255,0.08); }
+  .send-btn { width: 46px; height: 46px; border-radius: 50%; background: var(--green); border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.2s; flex-shrink: 0; box-shadow: 0 4px 12px rgba(37,211,102,0.3); }
+  .send-btn:hover { transform: scale(1.05); background: #20c45a; }
+  .send-btn:active { transform: scale(0.95); }
+  .send-btn svg { width: 20px; height: 20px; fill: white; margin-left: 2px; }
+
+  .empty-state { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; color: var(--text-muted); }
+  .empty-state .icon { font-size: 64px; opacity: 0.3; }
+  .empty-state h3 { font-size: 20px; font-weight: 500; color: var(--text); }
+  .empty-state p { font-size: 14px; text-align: center; max-width: 260px; line-height: 1.5; }
+
+  /* Context menu */
+  .ctx-menu { position: fixed; background: var(--sidebar-bg); border: 1px solid var(--border); border-radius: 10px; padding: 6px 0; z-index: 999; min-width: 160px; box-shadow: 0 8px 24px rgba(0,0,0,0.4); animation: ctxIn 0.15s ease; }
+  @keyframes ctxIn { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
+  .ctx-item { padding: 10px 16px; font-size: 14px; color: var(--text); cursor: pointer; display: flex; align-items: center; gap: 10px; transition: background 0.15s; }
+  .ctx-item:hover { background: rgba(255,255,255,0.08); }
+  .ctx-item.danger { color: #ff6b6b; }
+  .edit-input { background: rgba(255,255,255,0.1); border: 1px solid var(--green); border-radius: 6px; color: var(--text); font-family: var(--font); font-size: 14.5px; padding: 4px 8px; width: 100%; outline: none; }
+
+  /* Typing bubble */
+  .typing-bubble { display: none; align-items: center; gap: 6px; padding: 4px 0 8px 20px; }
+  .typing-bubble.show { display: flex; }
+  .typing-dots { background: var(--bubble-in); border-radius: 8px; border-top-left-radius: 2px; padding: 10px 14px; display: flex; align-items: center; gap: 4px; }
+  .typing-dots span { width: 7px; height: 7px; border-radius: 50%; background: var(--text-muted); display: inline-block; animation: typingBounce 1.2s infinite; }
+  .typing-dots span:nth-child(2) { animation-delay: 0.2s; }
+  .typing-dots span:nth-child(3) { animation-delay: 0.4s; }
+  @keyframes typingBounce { 0%,60%,100% { transform: translateY(0); opacity: 0.4; } 30% { transform: translateY(-6px); opacity: 1; } }
+
+  /* Search panel */
+  .search-panel { position: absolute; top: 0; left: 0; right: 0; background: var(--header-bg); padding: 12px 20px; display: flex; align-items: center; gap: 12px; z-index: 10; border-bottom: 1px solid var(--border); animation: slideDown 0.2s ease; }
+  @keyframes slideDown { from { transform: translateY(-100%); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+  .search-panel input { flex: 1; padding: 9px 16px; background: var(--input-bg); border: none; border-radius: 8px; color: var(--text); font-family: var(--font); font-size: 14px; outline: none; }
+  .search-panel input::placeholder { color: var(--text-muted); }
+  .search-count { font-size: 13px; color: var(--text-muted); white-space: nowrap; }
+  .search-nav button { width: 30px; height: 30px; background: transparent; border: none; color: var(--text-muted); cursor: pointer; border-radius: 6px; font-size: 16px; transition: background 0.15s; }
+  .search-nav button:hover { background: rgba(255,255,255,0.08); }
+
+  /* Image viewer */
+  .img-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.92); display: flex; align-items: center; justify-content: center; z-index: 200; cursor: zoom-out; }
+  .img-overlay img { max-width: 90vw; max-height: 90vh; border-radius: 8px; object-fit: contain; }
+
+  /* Upload progress */
+  .upload-progress { padding: 10px 16px; background: rgba(37,211,102,0.1); border-radius: 8px; color: var(--green); font-size: 13px; display: flex; align-items: center; gap: 8px; }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="sidebar">
+    <div class="sidebar-header">
+      <div class="user-info">
+        <div class="avatar" id="myAvatar" onclick="showProfileModal()" style="cursor:pointer;" title="Edit profile">?</div>
+        <div class="username-display" id="myUsername">Loading...</div>
+      </div>
+      <div class="sidebar-icons">
+        <button class="icon-btn">✏️</button>
+        <button class="icon-btn">⋮</button>
+      </div>
+    </div>
+    <div class="search-bar">
+      <input type="text" placeholder="Search or start new chat" id="searchInput" oninput="filterContacts()"/>
+    </div>
+    <div class="contacts-label">Contacts</div>
+    <div class="contacts-list" id="contactsList">
+      <div style="padding:20px;text-align:center;color:var(--text-muted);font-size:13px;">Loading contacts...</div>
+    </div>
+    <div class="contacts-label">Groups</div>
+    <div class="contacts-list" id="groupsList">
+      <div style="padding:12px 20px;color:var(--text-muted);font-size:13px;">No groups yet</div>
+    </div>
+    <button onclick="showCreateGroup()" style="margin:0 12px 8px;padding:10px;background:rgba(37,211,102,0.1);color:#25D366;border:1px solid rgba(37,211,102,0.2);border-radius:10px;font-family:var(--font);font-size:13px;font-weight:500;cursor:pointer;">+ New Group</button>
+    <button class="logout-btn" onclick="logout()">⏻ Sign Out</button>
+  </div>
+  <div class="chat-area" id="chatArea">
+    <div class="empty-state">
+      <div class="icon">💬</div>
+      <h3>ChatApp</h3>
+      <p>Select a contact from the sidebar to start chatting</p>
+    </div>
+  </div>
+</div>
+
+<script>
+  // ── Helpers ──
+  function escapeHtml(t) {
+    return String(t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+  function scrollToBottom() {
+    const c = document.getElementById('messages');
+    if (c) c.scrollTop = c.scrollHeight;
+  }
+  function playNotificationSound() {
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain); gain.connect(ctx.destination);
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(880, ctx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(440, ctx.currentTime + 0.1);
+      gain.gain.setValueAtTime(0.3, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4);
+      osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.4);
+    } catch(e) {}
+  }
+
+  // ── State ──
+  const myUsername = sessionStorage.getItem('username');
+  if (!myUsername) window.location.href = '/index.html';
+  document.getElementById('myUsername').textContent = myUsername;
+  document.getElementById('myAvatar').textContent = myUsername.charAt(0).toUpperCase();
+
+  let stompClient = null;
+  let activeContact = null;
+  let connected = false;
+  let myGroups = [];
+  let typingTimer = null;
+  let isTyping = false;
+  let searchResults = [];
+  let searchIndex = 0;
+  let searchOpen = false;
+
+  // ── Connect WebSocket ──
+  function connect() {
+    const socket = new SockJS('/chat');
+    stompClient = Stomp.over(socket);
+    stompClient.debug = null;
+    stompClient.connect({ username: myUsername }, function() {
+      connected = true;
+      stompClient.subscribe('/topic/messages/' + myUsername, function(msg) {
+        const message = JSON.parse(msg.body);
+        if (message.type === 'TYPING') { if (activeContact === message.sender) showTypingIndicator(); return; }
+        if (message.type === 'STOP_TYPING') { if (activeContact === message.sender) hideTypingIndicator(); return; }
+        if (message.status === 'READ_RECEIPT') { updateTicks(message.sender); return; }
+        hideTypingIndicator();
+        if (message.sender !== myUsername) playNotificationSound();
+        if (activeContact && (message.sender === activeContact || message.sender === myUsername)) {
+          appendBubble(message); scrollToBottom();
+        }
+        updateContactPreview(message);
+      });
+      stompClient.subscribe('/topic/status', function(msg) { updateOnlineStatus(JSON.parse(msg.body)); });
+      loadUsers();
+      loadGroups();
+    }, function() { connected = false; setTimeout(connect, 3000); });
+  }
+
+  // ── Load Users ──
+  async function loadUsers() {
+    try {
+      const res = await fetch('/auth/users');
+      if (!res.ok) throw new Error('Status: ' + res.status);
+      const users = await res.json();
+      const others = users.filter(function(u) { return u.username !== myUsername; });
+      if (others.length === 0) {
+        document.getElementById('contactsList').innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:13px;">No other users yet.</div>';
+        return;
+      }
+      renderContacts(others);
+      loadProfilePics();
+    } catch(e) {
+      document.getElementById('contactsList').innerHTML = '<div style="padding:20px;text-align:center;color:#ff6b6b;font-size:13px;">Failed: ' + e.message + '</div>';
+    }
+  }
+
+  function renderContacts(users) {
+    let html = '';
+    users.forEach(function(u) {
+      html += '<div class="contact-item" id="contact-' + u.username + '" onclick="openChat(\'' + u.username + '\')">';
+      html += '<div class="avatar sm" id="avatar-' + u.username + '">' + u.username.charAt(0).toUpperCase() + '</div>';
+      html += '<div class="contact-meta"><div class="contact-name">' + u.username + '</div>';
+      html += '<div class="contact-preview" id="preview-' + u.username + '">Tap to chat</div></div>';
+      html += '<div class="online-dot" id="dot-' + u.username + '"></div></div>';
+    });
+    document.getElementById('contactsList').innerHTML = html;
+    fetch('/auth/online').then(function(r){return r.json();}).then(updateOnlineStatus).catch(function(){});
+  }
+
+  function filterContacts() {
+    const q = document.getElementById('searchInput').value.toLowerCase();
+    document.querySelectorAll('.contact-item').forEach(function(el) {
+      el.style.display = el.querySelector('.contact-name').textContent.toLowerCase().includes(q) ? '' : 'none';
+    });
+  }
+
+  function updateContactPreview(msg) {
+    const other = msg.sender === myUsername ? msg.receiver : msg.sender;
+    const el = document.getElementById('preview-' + other);
+    if (el) el.textContent = (msg.sender === myUsername ? 'You: ' : '') + (msg.content || '');
+  }
+
+  function updateOnlineStatus(onlineUsers) {
+    document.querySelectorAll('.contact-item').forEach(function(el) {
+      const name = el.querySelector('.contact-name').textContent;
+      const dot = el.querySelector('.online-dot');
+      if (dot) {
+        const on = onlineUsers.indexOf(name) !== -1;
+        dot.style.background = on ? '#25D366' : '#8696a0';
+        dot.style.boxShadow = on ? '0 0 6px rgba(37,211,102,0.6)' : 'none';
+      }
+    });
+    const statusEl = document.querySelector('.chat-header-status');
+    if (statusEl && activeContact) {
+      const on = onlineUsers.indexOf(activeContact) !== -1;
+      statusEl.textContent = on ? 'online' : 'offline';
+      statusEl.style.color = on ? '#25D366' : '#8696a0';
+    }
+  }
+
+  // ── Open Chat ──
+  function openChat(contact) {
+    activeContact = contact;
+    document.querySelectorAll('.contact-item').forEach(function(el) { el.classList.remove('active'); });
+    const ci = document.getElementById('contact-' + contact); if (ci) ci.classList.add('active');
+
+    document.getElementById('chatArea').innerHTML =
+      '<div class="chat-header" style="position:relative;">' +
+        '<div class="avatar lg" id="headerAvatar">' + contact.charAt(0).toUpperCase() + '</div>' +
+        '<div class="chat-header-info"><div class="chat-header-name">' + contact + '</div>' +
+        '<div class="chat-header-status">online</div></div>' +
+        '<button class="icon-btn" onclick="toggleSearch()" title="Search messages">🔍</button>' +
+        '<button class="icon-btn">⋮</button>' +
+      '</div>' +
+      '<div class="messages" id="messages"><div class="date-divider"><span>Today</span></div></div>' +
+      '<div class="typing-bubble" id="typingBubble"><div class="typing-dots"><span></span><span></span><span></span></div></div>' +
+      '<div class="input-bar">' +
+        '<button class="attach-btn" onclick="document.getElementById(\'fileInput\').click()" title="Attach file">📎</button>' +
+        '<input type="file" id="fileInput" style="display:none" onchange="sendFile(event)"/>' +
+        '<div class="input-wrap">' +
+          '<button class="emoji-btn">😊</button>' +
+          '<input type="text" id="msgInput" placeholder="Type a message" autocomplete="off" ' +
+            'onkeydown="if(event.key===\'Enter\') sendMessage()" oninput="handleTyping()"/>' +
+        '</div>' +
+        '<button class="send-btn" onclick="sendMessage()"><svg viewBox="0 0 24 24"><path d="M2 21l21-9L2 3v7l15 2-15 2v7z"/></svg></button>' +
+      '</div>';
+
+    fetch('/profile/pic?username=' + contact).then(function(r){return r.text();}).then(function(p){
+      if (p) { const h = document.getElementById('headerAvatar'); if(h) h.innerHTML='<img src="'+p+'" style="width:100%;height:100%;border-radius:50%;object-fit:cover;"/>'; }
+    }).catch(function(){});
+
+    fetch('/message/conversation?user1=' + myUsername + '&user2=' + contact)
+      .then(function(r) { return r.json(); })
+      .then(function(msgs) {
+        msgs.forEach(function(m) { appendBubble(m); });
+        scrollToBottom();
+        fetch('/message/read?sender=' + contact + '&receiver=' + myUsername, { method: 'POST' }).catch(function(){});
+      }).catch(function(e) { console.error('Load messages failed:', e); });
+
+    document.getElementById('msgInput').focus();
+  }
+
+  // ── Append Bubble ──
+  function appendBubble(msg) {
+    const container = document.getElementById('messages');
+    if (!container) return;
+    const isOut = msg.sender === myUsername;
+    const now = new Date();
+    const time = now.getHours().toString().padStart(2,'0') + ':' + now.getMinutes().toString().padStart(2,'0');
+    let tick = '';
+    if (isOut) {
+      tick = msg.status === 'READ' ? '<span style="color:#53bdeb">✓✓</span>'
+           : msg.status === 'DELIVERED' ? '<span style="color:#8696a0">✓✓</span>'
+           : '<span style="color:#8696a0">✓</span>';
+    }
+
+    // Content: image, file, or text
+    let contentHtml = '';
+    if (msg.fileType === 'image' && msg.fileUrl) {
+      contentHtml =
+        '<div onclick="openImage(\'' + msg.fileUrl + '\')" style="cursor:pointer;">' +
+          '<img src="' + msg.fileUrl + '" style="max-width:220px;max-height:200px;border-radius:6px;display:block;"/>' +
+        '</div>';
+    } else if (msg.fileType === 'file' && msg.fileUrl) {
+      contentHtml =
+        '<a href="' + msg.fileUrl + '" download="' + escapeHtml(msg.fileName || 'file') + '" ' +
+        'style="display:flex;align-items:center;gap:10px;padding:8px;background:rgba(255,255,255,0.08);border-radius:8px;text-decoration:none;">' +
+          '<span style="font-size:24px;">📎</span>' +
+          '<div><div style="color:var(--text);font-size:13px;font-weight:500;">' + escapeHtml(msg.fileName || 'File') + '</div>' +
+          '<div style="color:var(--text-muted);font-size:11px;">Tap to download</div></div>' +
+        '</a>';
+    } else {
+      contentHtml = '<div class="bubble-text">' + escapeHtml(msg.content || '') + '</div>';
+    }
+
+    const wrap = document.createElement('div');
+    wrap.className = 'bubble-wrap ' + (isOut ? 'out' : 'in');
+    if (msg.id) wrap.setAttribute('data-id', msg.id);
+    if (isOut && msg.id) {
+      wrap.oncontextmenu = function(e) { e.preventDefault(); showContextMenu(e.clientX, e.clientY, msg.id); };
+      var pt;
+      wrap.addEventListener('touchstart', function(e) { pt = setTimeout(function() { var t=e.touches[0]; showContextMenu(t.clientX,t.clientY,msg.id); },600); });
+      wrap.addEventListener('touchend', function() { clearTimeout(pt); });
+    }
+    wrap.innerHTML =
+      '<div class="bubble">' +
+        '<div class="bubble-sender">' + escapeHtml(msg.sender || '') + '</div>' +
+        contentHtml +
+        '<div class="bubble-time">' + time + ' ' + tick + '</div>' +
+      '</div>';
+    container.appendChild(wrap);
+  }
+
+  // ── Send Message ──
+  function sendMessage() {
+    const input = document.getElementById('msgInput'); if (!input) return;
+    const content = input.value.trim();
+    if (!content || !connected || !activeContact) return;
+    stompClient.send('/app/chat', {}, JSON.stringify({ sender: myUsername, content: content, receiver: activeContact }));
+    input.value = ''; input.focus();
+  }
+
+  // ── Send File ──
+  function sendFile(event) {
+    const file = event.target.files[0];
+    if (!file || !activeContact || activeContact.startsWith('group_')) return;
+    if (file.size > 10 * 1024 * 1024) { alert('File too large. Max 10MB.'); return; }
+
+    // Show uploading indicator
+    const container = document.getElementById('messages');
+    if (container) {
+      const progress = document.createElement('div');
+      progress.className = 'bubble-wrap out';
+      progress.id = 'uploadProgress';
+      progress.innerHTML = '<div class="bubble"><div class="upload-progress">⏳ Uploading ' + escapeHtml(file.name) + '...</div></div>';
+      container.appendChild(progress);
+      scrollToBottom();
+    }
+
+    const fd = new FormData();
+    fd.append('sender', myUsername);
+    fd.append('receiver', activeContact);
+    fd.append('file', file);
+
+    fetch('/message/file', { method: 'POST', body: fd })
+      .then(function(r) { return r.json(); })
+      .then(function() {
+        const p = document.getElementById('uploadProgress'); if (p) p.remove();
+      })
+      .catch(function(e) {
+        const p = document.getElementById('uploadProgress'); if (p) p.remove();
+        console.error('File send error:', e);
+        alert('Failed to send file.');
+      });
+
+    // Reset input
+    event.target.value = '';
+  }
+
+  // ── Open image fullscreen ──
+  function openImage(url) {
+    const overlay = document.createElement('div');
+    overlay.className = 'img-overlay';
+    overlay.onclick = function() { overlay.remove(); };
+    overlay.innerHTML = '<img src="' + url + '" alt="Image"/>';
+    document.body.appendChild(overlay);
+  }
+
+  // ── Typing ──
+  function handleTyping() {
+    if (!activeContact || activeContact.startsWith('group_')) return;
+    if (!isTyping) {
+      isTyping = true;
+      fetch('/message/typing?sender=' + myUsername + '&receiver=' + activeContact, { method: 'POST' }).catch(function(){});
+    }
+    clearTimeout(typingTimer);
+    typingTimer = setTimeout(function() {
+      isTyping = false;
+      fetch('/message/stoptyping?sender=' + myUsername + '&receiver=' + activeContact, { method: 'POST' }).catch(function(){});
+    }, 1500);
+  }
+
+  function showTypingIndicator() {
+    const b = document.getElementById('typingBubble'); if (b) b.classList.add('show');
+    scrollToBottom();
+  }
+  function hideTypingIndicator() {
+    const b = document.getElementById('typingBubble'); if (b) b.classList.remove('show');
+  }
+
+  // ── Read Ticks ──
+  function updateTicks(fromUser) {
+    if (activeContact !== fromUser) return;
+    document.querySelectorAll('.bubble-wrap.out').forEach(function(el) {
+      const t = el.querySelector('.bubble-time');
+      if (t) { const p = t.textContent.trim().split(' ')[0]; t.innerHTML = p + ' <span style="color:#53bdeb">✓✓</span>'; }
+    });
+  }
+
+  // ── Context Menu ──
+  function showContextMenu(x, y, msgId) {
+    closeContextMenu();
+    const menu = document.createElement('div');
+    menu.className = 'ctx-menu'; menu.id = 'ctxMenu';
+    const posX = x + 160 > window.innerWidth ? x - 160 : x;
+    const posY = y + 90 > window.innerHeight ? y - 90 : y;
+    menu.style.left = posX + 'px'; menu.style.top = posY + 'px';
+    menu.innerHTML =
+      '<div class="ctx-item" onclick="editMessage(' + msgId + ')">✏️ Edit</div>' +
+      '<div class="ctx-item danger" onclick="deleteMessage(' + msgId + ')">🗑️ Delete</div>';
+    document.body.appendChild(menu);
+    setTimeout(function() { document.addEventListener('click', closeContextMenu, { once: true }); }, 100);
+  }
+
+  function closeContextMenu() { const m = document.getElementById('ctxMenu'); if (m) m.remove(); }
+
+  function deleteMessage(msgId) {
+    closeContextMenu();
+    if (!confirm('Delete this message?')) return;
+    fetch('/message/delete/' + msgId, { method: 'DELETE' }).then(function(res) {
+      if (res.ok) {
+        const b = document.querySelector('[data-id="' + msgId + '"]');
+        if (b) { b.classList.add('deleted'); b.querySelector('.bubble-text') && (b.querySelector('.bubble-text').textContent = 'This message was deleted'); }
+      }
+    }).catch(function(e) { console.error('Delete error:', e); });
+  }
+
+  function editMessage(msgId) {
+    closeContextMenu();
+    const bubble = document.querySelector('[data-id="' + msgId + '"]'); if (!bubble) return;
+    const textEl = bubble.querySelector('.bubble-text'); if (!textEl) return;
+    const current = textEl.textContent.replace(' (edited)', '');
+    textEl.innerHTML =
+      '<input class="edit-input" id="editInput-' + msgId + '" type="text" value="' + escapeHtml(current) + '"/>' +
+      '<div style="display:flex;gap:6px;margin-top:6px;justify-content:flex-end;">' +
+        '<button onclick="cancelEdit(' + msgId + ',\'' + escapeHtml(current).replace(/'/g,"&#39;") + '\')" style="padding:4px 10px;background:var(--input-bg);color:var(--text);border:none;border-radius:6px;cursor:pointer;font-size:12px;">Cancel</button>' +
+        '<button onclick="saveEdit(' + msgId + ')" style="padding:4px 10px;background:#25D366;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:12px;">Save</button>' +
+      '</div>';
+    const input = document.getElementById('editInput-' + msgId);
+    if (input) {
+      input.focus(); input.select();
+      input.addEventListener('keydown', function(e) { if (e.key==='Enter') saveEdit(msgId); if (e.key==='Escape') cancelEdit(msgId,current); });
+    }
+  }
+
+  function cancelEdit(msgId, original) {
+    const b = document.querySelector('[data-id="' + msgId + '"]');
+    if (b) { const t = b.querySelector('.bubble-text'); if (t) t.textContent = original; }
+  }
+
+  function saveEdit(msgId) {
+    const input = document.getElementById('editInput-' + msgId); if (!input) return;
+    const newContent = input.value.trim(); if (!newContent) return;
+    fetch('/message/edit/' + msgId, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content: newContent }) })
+      .then(function(r) { return r.json(); })
+      .then(function(updated) {
+        const b = document.querySelector('[data-id="' + msgId + '"]');
+        if (b) { const t = b.querySelector('.bubble-text'); if (t) t.textContent = updated.content; }
+      }).catch(function(e) { console.error('Edit error:', e); });
+  }
+
+  // ── Message Search ──
+  function toggleSearch() { searchOpen ? closeSearch() : openSearch(); }
+
+  function openSearch() {
+    searchOpen = true;
+    const header = document.querySelector('.chat-header'); if (!header) return;
+    const panel = document.createElement('div');
+    panel.className = 'search-panel'; panel.id = 'searchPanel';
+    panel.innerHTML =
+      '<button onclick="closeSearch()" style="background:transparent;border:none;color:var(--text-muted);cursor:pointer;font-size:20px;padding:0;">✕</button>' +
+      '<input type="text" id="searchMsgInput" placeholder="Search messages..." oninput="searchMessages()"/>' +
+      '<span class="search-count" id="searchCount"></span>' +
+      '<div class="search-nav"><button onclick="searchNav(-1)">▲</button><button onclick="searchNav(1)">▼</button></div>';
+    header.parentNode.insertBefore(panel, header.nextSibling);
+    document.getElementById('searchMsgInput').focus();
+  }
+
+  function closeSearch() {
+    searchOpen = false; searchResults = []; searchIndex = 0;
+    const p = document.getElementById('searchPanel'); if (p) p.remove();
+    document.querySelectorAll('.bubble-wrap.highlight').forEach(function(el) { el.classList.remove('highlight'); });
+  }
+
+  function searchMessages() {
+    const query = document.getElementById('searchMsgInput').value.trim();
+    const countEl = document.getElementById('searchCount');
+    document.querySelectorAll('.bubble-wrap.highlight').forEach(function(el) { el.classList.remove('highlight'); });
+    searchResults = []; searchIndex = 0;
+    if (!query || !activeContact || activeContact.startsWith('group_')) { if (countEl) countEl.textContent = ''; return; }
+    fetch('/message/search?user1=' + myUsername + '&user2=' + activeContact + '&query=' + encodeURIComponent(query))
+      .then(function(r) { return r.json(); })
+      .then(function(messages) {
+        if (!messages.length) { if (countEl) countEl.textContent = 'No results'; return; }
+        messages.forEach(function(msg) {
+          const b = document.querySelector('[data-id="' + msg.id + '"]'); if (b) b.classList.add('highlight');
+        });
+        searchResults = Array.from(document.querySelectorAll('.bubble-wrap.highlight'));
+        searchIndex = 0;
+        if (countEl) countEl.textContent = '1 / ' + searchResults.length;
+        scrollToBubble(searchResults[0]);
+      }).catch(function(e) { console.error('Search error:', e); });
+  }
+
+  function searchNav(dir) {
+    if (!searchResults.length) return;
+    searchIndex = (searchIndex + dir + searchResults.length) % searchResults.length;
+    const countEl = document.getElementById('searchCount');
+    if (countEl) countEl.textContent = (searchIndex + 1) + ' / ' + searchResults.length;
+    scrollToBubble(searchResults[searchIndex]);
+  }
+
+  function scrollToBubble(el) {
+    if (!el) return;
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    el.style.opacity = '0.5';
+    setTimeout(function() { el.style.opacity = '1'; }, 200);
+  }
+
+  // ── Profile Picture ──
+  function loadProfilePics() {
+    fetch('/auth/users').then(function(r){return r.json();}).then(function(users){
+      users.forEach(function(u) { if (u.profilePic) setAvatarPic(u.username, u.profilePic); });
+    }).catch(function(){});
+  }
+
+  function setAvatarPic(username, picUrl) {
+    if (!picUrl) return;
+    const el = document.getElementById('avatar-' + username);
+    if (el) el.innerHTML = '<img src="' + picUrl + '" style="width:100%;height:100%;border-radius:50%;object-fit:cover;"/>';
+    if (username === myUsername) {
+      const me = document.getElementById('myAvatar');
+      if (me) me.innerHTML = '<img src="' + picUrl + '" style="width:100%;height:100%;border-radius:50%;object-fit:cover;"/>';
+    }
+  }
+
+  function showProfileModal() {
+    fetch('/profile/pic?username=' + myUsername).then(function(r){return r.text();}).then(function(picUrl){
+      const overlay = document.createElement('div');
+      overlay.id = 'profileOverlay';
+      overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;z-index:100;';
+      overlay.innerHTML =
+        '<div style="background:var(--sidebar-bg);border-radius:16px;padding:32px;width:100%;max-width:360px;display:flex;flex-direction:column;align-items:center;gap:16px;">' +
+          '<div onclick="document.getElementById(\'picFileInput\').click()" style="width:100px;height:100px;border-radius:50%;background:var(--green-dark);display:flex;align-items:center;justify-content:center;font-size:40px;font-weight:600;color:#fff;overflow:hidden;cursor:pointer;border:3px solid #25D366;">' +
+            (picUrl ? '<img src="' + picUrl + '" style="width:100%;height:100%;object-fit:cover;border-radius:50%;"/>' : myUsername.charAt(0).toUpperCase()) +
+          '</div>' +
+          '<div style="color:var(--text);font-size:18px;font-weight:600;">' + myUsername + '</div>' +
+          '<input type="file" id="picFileInput" accept="image/*" style="display:none" onchange="uploadPic(event)"/>' +
+          '<p style="color:var(--text-muted);font-size:13px;text-align:center;">Click your avatar to upload a profile picture</p>' +
+          '<button onclick="closeProfile()" style="padding:10px 32px;background:var(--input-bg);color:var(--text);border:none;border-radius:10px;cursor:pointer;font-family:var(--font);font-size:14px;">Close</button>' +
+        '</div>';
+      document.body.appendChild(overlay);
+    }).catch(function(){});
+  }
+
+  function closeProfile() { const el = document.getElementById('profileOverlay'); if (el) el.remove(); }
+
+  function uploadPic(event) {
+    const file = event.target.files[0]; if (!file) return;
+    const fd = new FormData(); fd.append('username', myUsername); fd.append('file', file);
+    fetch('/profile/upload', { method: 'POST', body: fd })
+      .then(function(r){return r.text();})
+      .then(function(url){ setAvatarPic(myUsername, url); closeProfile(); showProfileModal(); })
+      .catch(function(e){ console.error('Upload error:', e); });
+  }
+
+  // ── Groups ──
+  function loadGroups() {
+    fetch('/group/my?username=' + myUsername).then(function(r){return r.json();}).then(function(groups){
+      myGroups = groups; renderGroups(groups);
+    }).catch(function(){});
+  }
+
+  function renderGroups(groups) {
+    const list = document.getElementById('groupsList');
+    if (!groups.length) { list.innerHTML = '<div style="padding:12px 20px;color:var(--text-muted);font-size:13px;">No groups yet</div>'; return; }
+    let html = '';
+    groups.forEach(function(g) {
+      html += '<div class="contact-item" id="group-' + g.id + '" onclick="openGroupChat(' + g.id + ',\'' + escapeHtml(g.name) + '\')">';
+      html += '<div class="avatar sm" style="background:#128C7E;">#</div>';
+      html += '<div class="contact-meta"><div class="contact-name">' + escapeHtml(g.name) + '</div>';
+      html += '<div class="contact-preview" id="gpreview-' + g.id + '">' + g.members.length + ' members</div></div></div>';
+    });
+    list.innerHTML = html;
+  }
+
+  function showCreateGroup() {
+    document.getElementById('chatArea').innerHTML =
+      '<div style="flex:1;display:flex;align-items:center;justify-content:center;padding:40px;">' +
+      '<div style="background:var(--sidebar-bg);border-radius:16px;padding:32px;width:100%;max-width:400px;">' +
+      '<h2 style="color:var(--text);font-size:18px;font-weight:600;margin-bottom:24px;">Create New Group</h2>' +
+      '<div style="margin-bottom:16px;"><label style="font-size:12px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.8px;">Group Name</label>' +
+      '<input id="groupNameInput" type="text" placeholder="Enter group name" style="width:100%;margin-top:8px;padding:12px 16px;background:var(--input-bg);border:none;border-radius:10px;color:var(--text);font-size:15px;outline:none;font-family:var(--font);"/></div>' +
+      '<div style="margin-bottom:24px;"><label style="font-size:12px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.8px;">Add Members</label>' +
+      '<div id="memberCheckboxes" style="margin-top:8px;display:flex;flex-direction:column;gap:8px;max-height:200px;overflow-y:auto;"></div></div>' +
+      '<button onclick="createGroup()" style="width:100%;padding:14px;background:#25D366;color:#fff;border:none;border-radius:10px;font-size:15px;font-weight:600;cursor:pointer;font-family:var(--font);">Create Group</button>' +
+      '</div></div>';
+    fetch('/auth/users').then(function(r){return r.json();}).then(function(users){
+      let html = '';
+      users.forEach(function(u) {
+        if (u.username === myUsername) return;
+        html += '<label style="display:flex;align-items:center;gap:10px;padding:8px;background:var(--input-bg);border-radius:8px;cursor:pointer;color:var(--text);font-size:14px;">';
+        html += '<input type="checkbox" value="' + u.username + '" style="width:16px;height:16px;accent-color:#25D366;"/>' + escapeHtml(u.username) + '</label>';
+      });
+      document.getElementById('memberCheckboxes').innerHTML = html;
+    });
+  }
+
+  function createGroup() {
+    const name = document.getElementById('groupNameInput').value.trim();
+    if (!name) { alert('Please enter a group name'); return; }
+    const checked = document.querySelectorAll('#memberCheckboxes input:checked');
+    const members = [myUsername];
+    checked.forEach(function(cb) { members.push(cb.value); });
+    if (members.length < 2) { alert('Please add at least one member'); return; }
+    fetch('/group/create', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: name, createdBy: myUsername, members: members }) })
+      .then(function(r){return r.json();})
+      .then(function(g){ myGroups.push(g); loadGroups(); openGroupChat(g.id, g.name); })
+      .catch(function(e){ console.error('Create group error:', e); });
+  }
+
+  function openGroupChat(groupId, groupName) {
+    activeContact = 'group_' + groupId;
+    document.querySelectorAll('.contact-item').forEach(function(el) { el.classList.remove('active'); });
+    const gi = document.getElementById('group-' + groupId); if (gi) gi.classList.add('active');
+    document.getElementById('chatArea').innerHTML =
+      '<div class="chat-header"><div class="avatar lg" style="background:#128C7E;">#</div>' +
+      '<div class="chat-header-info"><div class="chat-header-name">' + escapeHtml(groupName) + '</div>' +
+      '<div class="chat-header-status" style="color:var(--text-muted);">Group chat</div></div></div>' +
+      '<div class="messages" id="messages"><div class="date-divider"><span>Today</span></div></div>' +
+      '<div class="input-bar"><div class="input-wrap"><button class="emoji-btn">😊</button>' +
+      '<input type="text" id="msgInput" placeholder="Type a message" autocomplete="off" onkeydown="if(event.key===\'Enter\') sendGroupMessage(' + groupId + ')"/>' +
+      '</div><button class="send-btn" onclick="sendGroupMessage(' + groupId + ')"><svg viewBox="0 0 24 24"><path d="M2 21l21-9L2 3v7l15 2-15 2v7z"/></svg></button></div>';
+    fetch('/group/messages?groupId=' + groupId).then(function(r){return r.json();}).then(function(msgs){
+      msgs.forEach(function(m){ appendBubble(m); }); scrollToBottom();
+    });
+    if (connected) {
+      stompClient.subscribe('/topic/group/' + groupId, function(msg) {
+        const m = JSON.parse(msg.body);
+        if (activeContact === 'group_' + groupId) { appendBubble(m); scrollToBottom(); }
+        if (m.sender !== myUsername) playNotificationSound();
+        const el = document.getElementById('gpreview-' + groupId);
+        if (el) el.textContent = m.sender + ': ' + m.content;
+      });
+    }
+    document.getElementById('msgInput').focus();
+  }
+
+  function sendGroupMessage(groupId) {
+    const input = document.getElementById('msgInput'); if (!input) return;
+    const content = input.value.trim(); if (!content) return;
+    fetch('/group/send', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sender: myUsername, content: content, groupId: groupId }) })
+      .catch(function(e){ console.error('Group send error:', e); });
+    input.value = ''; input.focus();
+  }
+
+  function logout() { sessionStorage.removeItem('username'); window.location.href = '/index.html'; }
+
+  connect();
+</script>
+</body>
+</html>
